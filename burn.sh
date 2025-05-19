@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PORT=${PORT:-/dev/cu.usbserial-210}
+PORT=${PORT:=/dev/cu.usbserial-210}
 
 ESP_FIRMWARE_VERSION=ESP32_GENERIC-20250415-v1.25.0
 wget "https://micropython.org/resources/firmware/$ESP_FIRMWARE_VERSION.bin"

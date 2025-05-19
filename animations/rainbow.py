@@ -19,6 +19,9 @@ async def animate(
         leds_per_face: int,
         num_faces: int,
         layers: tuple[tuple[int, ...], ...],
+        sensors_to_face: list[list[int]],
+        face_to_sensors: list[list[int]],
+        face_positions: list[list[float]],
         stop_event: asyncio.Event,
         state: SharedState
 ) -> None:

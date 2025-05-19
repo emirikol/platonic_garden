@@ -127,8 +127,11 @@ async def fetch_animation_data():
     except uasyncio.TimeoutError:
         return None
     except OSError as e:
-        sys.print_exception(e)
-        return None
+        if e.errno == 118:
+            return None
+        else:
+            sys.print_exception(e)
+            return None
     except Exception as e:
         sys.print_exception(e)
         return None

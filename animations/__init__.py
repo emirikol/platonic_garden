@@ -1,4 +1,5 @@
 ANIMATIONS = [
     'flashing_purple',
-    'rainbow'
+    'rainbow',
+    'parabola'
 ]

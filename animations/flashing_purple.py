@@ -8,6 +8,9 @@ async def animate(
         leds_per_face: int,
         num_faces: int,
         layers: tuple[tuple[int, ...], ...],
+        sensors_to_face: list[list[int]],
+        face_to_sensors: list[list[int]],
+        face_positions: list[list[float]],
         stop_event: asyncio.Event,
         state: SharedState
     ) -> None:
@@ -50,7 +53,8 @@ async def animate(
                 for face_index in range(len(layers[j])):
                     if distances is not None and face_index < len(distances) and distances[face_index][0] is not None: 
                         # Get temperature from the tuple (distance, temperature)
-                        sensor_temp = distances[face_index][1]
+                        face = layers[j][face_index]
+                        sensor_temp = max([distances[i][1] for i in face_to_sensors[face]] + [0])
                         layer_color = (intensity, 0, int(intensity*((255-sensor_temp)/255)))
                         set_face_color(np, leds_per_face, layers[j][face_index], layer_color)
             else:

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PORT=${PORT:-/dev/cu.usbserial-210}
+PORT=${PORT:=/dev/cu.usbserial-210}
 
 ./deploy.sh
 sleep 2

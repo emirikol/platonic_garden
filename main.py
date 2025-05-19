@@ -34,15 +34,19 @@ def get_layers(shape_faces: list[dict]) -> tuple[tuple[int, ...], ...]:
 def get_shape(file_path: Path) -> tuple[int, int, tuple[tuple[int, ...], ...]]:
     data = json.loads(file_path.read_text())
     
-    leds_per_entity = data.get('led_per_side') or data.get('led_per_face')
+    leds_per_face = data.get('led_per_face')
     faces_data = data.get('faces')
-    
-    if leds_per_entity is None or faces_data is None:
+    sensors = data.get('sensors')
+    sensors_to_face = [[face for face in range(len(faces_data)) if i in faces_data[face]['sensors']] for i in range(sensors)]
+    face_to_sensors = [face['sensors'] for face in faces_data]
+    face_positions = [face['pos'] for face in faces_data]
+
+    if leds_per_face is None or faces_data is None:
         raise ValueError(f"Invalid shape data in {file_path}")
 
     num_faces = len(faces_data)
     layers_map = get_layers(faces_data)
-    return leds_per_entity, num_faces, layers_map
+    return leds_per_face, num_faces, layers_map, sensors_to_face, face_to_sensors, face_positions
 
 
 def set_face_color(np, leds_per_face, face_index, color):
@@ -60,12 +64,27 @@ async def run_animations(
         leds_per_face: int,
         num_faces: int,
         layers: tuple[tuple[int, ...], ...],
+        sensors_to_face: list[list[int]],
+        face_to_sensors: list[list[int]],
+        face_positions: list[list[float]],
         state: SharedState
     ) -> None:
+
     animations = get_animations()
-    current_animation = ''
-    task = None
-    stop_event = None
+    async def start_animation(animation_name: str) -> None:
+        stop_event = asyncio.Event()
+        task = asyncio.create_task(animations[animation_name].animate(
+            np, leds_per_face, num_faces, layers, sensors_to_face, face_to_sensors, face_positions, stop_event, state
+            ))
+        return task, stop_event
+    
+    if Path('force_animation.txt').exists():
+        force_animation = Path('force_animation.txt').read_text().strip()
+        task, stop_event = await start_animation(force_animation)
+        await asyncio.gather(task)
+
+    current_animation = list(animations.keys())[0]
+    task, stop_event = await start_animation(current_animation)
     while True:
         try:
             new_animation = (await state.get()).get('animation')
@@ -75,12 +94,16 @@ async def run_animations(
                     if task is not None:
                         stop_event.set()
                         await asyncio.gather(task)
-                    stop_event = asyncio.Event()
-                    task = asyncio.create_task(animations[new_animation].animate(np, leds_per_face, num_faces, layers, stop_event, state))
+                    task, stop_event = await start_animation(new_animation)
             await asyncio.sleep(0.05)
         except Exception as e:
             sys.print_exception(e)
             error_animation(np)
+
+
+async def restart_in_30_minutes() -> None:
+    await asyncio.sleep(30 * 60)
+    machine.reset()
 
 
 async def get_animation_name(state: SharedState):
@@ -92,7 +115,7 @@ async def get_animation_name(state: SharedState):
         else:
             #await state.update('animation', "flashing_purple")
             await state.update('animation', animation_name)
-        await asyncio.sleep(1)
+            await asyncio.sleep(1)
 
 
 def error_animation(np: neopixel.NeoPixel) -> None:
@@ -118,18 +141,24 @@ def init_animation(np: neopixel.NeoPixel) -> None:
         time.sleep(1)
 
 def main():
-    leds_per_face, num_faces, layers = get_shape(Path('shapes/dodecahedron.json'))
+    shape = Path('shape.txt').read_text().strip()
+    leds_per_face, num_faces, layers, sensors_to_face, face_to_sensors, face_positions = get_shape(Path(f'shapes/{shape}.json'))
 
     np = neopixel.NeoPixel(machine.Pin(18, machine.Pin.OUT), leds_per_face * num_faces)
 
     init_animation(np)
 
-    state = SharedState()
+    initial_state = {
+        'animation': None,
+        'distances': [(None, 0)] * 5
+    }
+
+    state = SharedState(initial_state)
     tasks = []
-    tasks.append(run_animations(np, leds_per_face, num_faces, layers, state))
+    tasks.append(run_animations(np, leds_per_face, num_faces, layers,sensors_to_face, face_to_sensors, face_positions, state))
     tasks.append(get_animation_name(state))
     tasks.append(read_sensor(state))
-    
+    tasks.append(restart_in_30_minutes())
     asyncio.run(asyncio.gather(*tasks))
 
 if __name__ == '__main__':

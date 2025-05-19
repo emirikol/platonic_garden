@@ -31,3 +31,17 @@ async def read_until_null_terminator(reader):
             return bytes(buffer)
 
         buffer.append(byte[0])
+
+
+def get_colors() -> list[tuple[int, int, int]]:
+    possible_values = [128, 255]
+    colors = []
+
+    colors = [
+        (r, g, b)
+        for r in possible_values
+        for g in possible_values
+        for b in possible_values
+        if r!=g and g!=b
+    ]
+    return colors
