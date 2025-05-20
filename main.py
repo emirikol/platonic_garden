@@ -103,6 +103,7 @@ async def run_animations(
 
 async def restart_in_30_minutes() -> None:
     await asyncio.sleep(30 * 60)
+    print("Restarting after 30 minutes, see you soon!")
     machine.reset()
 
 
@@ -132,8 +133,21 @@ def error_animation(np: neopixel.NeoPixel) -> None:
 
 
 def init_animation(np: neopixel.NeoPixel) -> None:
+    print("""
+       ^     +------+.           /\              _----------_,                 _-_. 
+      /|\    |`.    | `.       .'  `.          ,"__         _-:,            _-',^. `-_.
+     / | \   |  `+--+---+    .'      `.       /    ""--_--""...:\       ._-' ,'   `.   `-_
+    /  |  \  |   |  |   |   <          >     /         |.........\     !`-_._________`-':::
+    '-.|.-'  +---+--+.  |    `.      .'     /          |..........\    !   /\        /\::::
+              `. |    `.|      `.  .'      /,         _'_........./:   ;  /  \      /..\:::
+                `+------+        \/        ! -,    _-"   "-_... ,;;:   ! /    \    /....\::
+                                           \   -_-"         "-_/;;;;   !/      \  /......\:
+                                            \   \             /;;;;'   ;--.___. \/_.__.--;;
+                                             \   \           /;;;;      '-_    `:!;;;;;;;' 
+                                              '.  \         /;;;'          `-_, :!;;;''    
+                                                "-_\_______/;;'                `-!'      
+""")
     for i in range(3):
-        print(time.time_ns())
         color = [0, 0, 0]
         color[i] = 255
         np.fill(tuple(color))

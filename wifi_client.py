@@ -85,8 +85,7 @@ async def connect_to_wifi():
         return False
 
 
-async def fetch_animation_data():
-    """Fetches animation data from AP socket asynchronously. Assumes Wi-Fi is connected."""
+async def send_message(message: bytes, json_response: bool = True) -> dict | None:
     reader = None
     writer = None
     try:
@@ -95,28 +94,30 @@ async def fetch_animation_data():
             timeout=10.0
         )
         
-        request_message = b"GET_ANIMATION\x00"
+        request_message = message + b"\x00"
         writer.write(request_message)
         await writer.drain()
         raw_data = await uasyncio.wait_for(
             read_until_null_terminator(reader),
             timeout=10.0
         )
-        
-        if not raw_data:
-            return None
 
         writer.write(b"ACK")
         await writer.drain()
 
+        if not raw_data:
+            return None
+        elif raw_data == b"UNKNOWN_REQUEST":
+            print(f"Unknown request: {message}")
+            return None
+        
+        if not json_response:
+            return raw_data
+        
         try:
-            payload_json_str = raw_data.decode('utf-8')
-            payload_dict = json.loads(payload_json_str)
-            animation_name = payload_dict.get('animation')
-            if animation_name is None:
-                return None
-            print(f"Received animation: {animation_name}")
-            return animation_name
+                payload_json_str = raw_data.decode('utf-8')
+                payload_dict = json.loads(payload_json_str)
+                return payload_dict
         except json.JSONDecodeError as e:
             sys.print_exception(e)
             return None
@@ -139,6 +140,16 @@ async def fetch_animation_data():
         if writer:
             writer.close()
             await writer.wait_closed()
+
+
+async def fetch_animation_data() -> str | None:
+    """Fetches animation data from AP socket asynchronously. Assumes Wi-Fi is connected."""
+    data = await send_message(b"GET_ANIMATION")
+    if data is not None:
+        animation_name = data.get('animation')
+        print(f"Received animation: {animation_name}")
+        return animation_name
+    
 
 async def is_wifi_connected():
     """Asynchronously checks the current Wi-Fi connection status."""

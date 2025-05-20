@@ -5,21 +5,17 @@ from typing import Optional, Dict, Any, Callable
 class SharedState:
     def __init__(self, initial: Optional[Dict[Any, Any]] = None):
         self._data: Optional[Dict[Any, Any]] = deepcopy(initial) if initial is not None else {}
-        self._lock = asyncio.Lock()
 
+    async def get_unsafe(self) -> Optional[Dict[Any, Any]]:
+        return self._data
+    
     async def get(self) -> Optional[Dict[Any, Any]]:
-        async with self._lock:
-            return deepcopy(self._data)
-
-    async def set(self, value: Dict[Any, Any]) -> None:
-        async with self._lock:
-            self._data = deepcopy(value)
+        return deepcopy(self._data)
 
     async def update(self, key: str, value: Any) -> None:
-        async with self._lock:
-            if self._data is None:
-                self._data = {}
-            self._data[key] = value
+        if self._data is None:
+            self._data = {}
+        self._data[key] = value
 
 
 async def read_until_null_terminator(reader):
@@ -34,7 +30,7 @@ async def read_until_null_terminator(reader):
 
 
 def get_colors() -> list[tuple[int, int, int]]:
-    possible_values = [128, 255]
+    possible_values = [127, 255]
     colors = []
 
     colors = [

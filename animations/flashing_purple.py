@@ -27,12 +27,11 @@ async def animate(
     
     async def process_animation_step(step_index):
         nonlocal total_frames
+        frame_start = time.time_ns()
         
         distances = (await state.get()).get("distances")
         if stop_event.is_set():
             return True  # Signal to stop
-            
-        frame_start = time.time_ns()
         
         # First pass - set base colors
         for j in range(len(layers)):
