@@ -80,6 +80,7 @@ async def run_animations(
     
     if Path('force_animation.txt').exists():
         force_animation = Path('force_animation.txt').read_text().strip()
+        print(f"Forcing animation: {force_animation}")
         task, stop_event = await start_animation(force_animation)
         await asyncio.gather(task)
 

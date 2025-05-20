@@ -1,5 +1,7 @@
 ANIMATIONS = [
     'flashing_purple',
     'rainbow',
-    'parabola'
+    'parabola',
+    'swirling_colors',
+    'sensory_orb',
 ]
