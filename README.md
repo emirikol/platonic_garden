@@ -26,15 +26,30 @@ All scripts that interact with the ESP32 (e.g., `./burn.sh`, `./install_dependen
 
 If this variable is not set, the scripts will default to `/dev/cu.usbserial-210`.
 
-To specify a different port, you can set the variable before running a script:
+You can set the PORT in two ways:
+
+1. Directly in the command line before running a script:
 ```bash
 PORT=/dev/tty.usbserial-XXXX ./burn.sh
 ```
-Or, for `set_shape.py`:
-```bash
-PORT=/dev/tty.usbserial-XXXX python set_shape.py your_shape
-```
+
 Replace `/dev/tty.usbserial-XXXX` with your actual serial port.
+
+2. Using a `.env` file (recommended):
+You can use direnv to automatically load the PORT from a `.env` file whenever you enter the project directory. For instructions on installing and configuring direnv with zsh, visit: https://direnv.net/docs/installation.html
+
+Once direnv is set up, create a `.env` file in your project directory:
+```bash
+PORT=/dev/cu.usbserial-210
+```
+
+The PORT env var works for:
+* burn.sh
+* deploy.sh
+* deploy_wifi_server.sh
+* install_dependencies.sh
+* set_shape.py
+* force_animation.py
 
 ### Burning the ESP32 for the 1st time
 This installs micropython on the ESP32 and runs all the other shell scripts in order to install dependencies and deploy the code
