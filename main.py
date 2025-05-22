@@ -13,7 +13,7 @@ from pathlib import Path
 from utils import SharedState
 from wifi_client import connect_to_wifi, fetch_animation_data, is_wifi_connected
 from animations import ANIMATIONS
-from read_sensor import read_sensor
+from read_sensor import read_sensor, TempratureSettings
 
 
 def get_layers(shape_faces: list[dict]) -> tuple[tuple[int, ...], ...]:
@@ -69,10 +69,12 @@ async def run_animations(
         face_positions: list[list[float]],
         state: SharedState
     ) -> None:
+    temp_settings = TempratureSettings()
 
     animations = get_animations()
     async def start_animation(animation_name: str) -> None:
         stop_event = asyncio.Event()
+        temp_settings.set_values_to_default()
         task = asyncio.create_task(animations[animation_name].animate(
             np, leds_per_face, num_faces, layers, sensors_to_face, face_to_sensors, face_positions, stop_event, state
             ))

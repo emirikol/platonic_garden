@@ -9,6 +9,21 @@ import sys # Added for print_exception
 from collections import deque # New import
 
 
+class TempratureSettings:
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance.set_values_to_default()
+        return cls._instance
+    
+    def set_values_to_default(self):
+        self.TEMPRATURE_CHANGE_THRESHOLD = 1000
+        self.TEMP_DELTA_UP = 10
+        self.TEMP_DELTA_DOWN = 2
+
+
 I2C_FREQ = 400000
 REINIT_INTERVAL = 20 * 60 * 1000  # 20 minutes in milliseconds
 
@@ -17,9 +32,6 @@ LOCK_MESSAGE_COOLDOWN_MS = 5000
 TEMP_HISTORY_WINDOW_MS = 5000
 
 DISTANCE_OFFSET = 50 # Default offset for distance calculation
-TEMPRATURE_CHANGE_THRESHOLD = 1000
-TEMP_DELTA_UP = 10
-TEMP_DELTA_DOWN = 2
 
 SENSOR_LOOP_DELAY_S = 0.1 # Corresponds to asyncio.sleep(0.1)
 # Calculate max history length based on window and loop delay
@@ -123,6 +135,8 @@ async def read_sensor(state: SharedState):
     _initial_current_time_for_lock_logic = utime.ticks_ms()
     last_lock_sent_time = utime.ticks_add(_initial_current_time_for_lock_logic, -(LOCK_MESSAGE_COOLDOWN_MS + 1))
 
+    temp_settings = TempratureSettings()
+
     while True:
         current_loop_time = utime.ticks_ms()
 
@@ -141,7 +155,7 @@ async def read_sensor(state: SharedState):
                 try:
                     distance = max(0, sensor_tof.ping() - DISTANCE_OFFSET) # Adjusted offset if necessary
                     # Update temperature based on distance
-                    sensor_temp_array[i] = sensor_temp_array[i] + TEMP_DELTA_UP if distance < TEMPRATURE_CHANGE_THRESHOLD else sensor_temp_array[i] - TEMP_DELTA_DOWN
+                    sensor_temp_array[i] = sensor_temp_array[i] + temp_settings.TEMP_DELTA_UP if distance < temp_settings.TEMPRATURE_CHANGE_THRESHOLD else sensor_temp_array[i] - temp_settings.TEMP_DELTA_DOWN
                     sensor_temp_array[i] = min(max(0, sensor_temp_array[i]), 255)
                     # Create a tuple with distance and temperature
                     sensor_readings.append((distance, sensor_temp_array[i]))
@@ -212,7 +226,6 @@ async def read_sensor(state: SharedState):
                     sys.print_exception(e_send) # Requires 'import sys'
                 
                 last_lock_sent_time = current_loop_time # Update time of last sent message (or attempt)
-        
         await state.update("distances", sensor_readings)
         #print(f"\rDistances: {sensor_readings} Time: {avg_read_time}ms", end="")
         await asyncio.sleep(SENSOR_LOOP_DELAY_S)

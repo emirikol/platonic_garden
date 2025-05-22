@@ -13,6 +13,7 @@ def get_all_colors() -> list[tuple[int, int, int]]:
         for r in possible_values
         for g in possible_values
         for b in possible_values
-        if not r == g == b
+        if (not r == g == b) and (r == 0 or g == 0 or b == 0)
     ]
+
     return colors

@@ -208,12 +208,64 @@ Each shape JSON file typically defines:
 
 The `get_shape()` function processes this raw data to compute `num_faces`, `layers_map` (which becomes `layers`), `sensors_to_face`, `face_to_sensors`, and `face_positions`.
 
-### Animation Orchestration by `run_animations()`
+## Temperature System
 
-The `run_animations()` async function in `main.py` manages the lifecycle of animations:
-1.  It discovers all available animation modules in the `animations/` directory using `get_animations()` (which likely inspects the directory).
-2.  It provides a mechanism to start a specific animation, creating an `asyncio.Task` for it and managing a `stop_event` for termination.
-3.  It can switch between animations by signaling the current animation to stop (using its `stop_event`) and then starting a new one.
-4.  It monitors the shared `state` for an `animation` key, allowing external requests to change the currently running animation.
+The installation uses a virtual "temperature" system to smooth proximity sensor readings over time. This system helps distinguish between people passing by the installation and those actively engaging with it by standing in front of sensors. The system is managed through the `TempratureSettings` singleton class in `read_sensor.py`.
 
-By following this structure, your new animation will integrate seamlessly into the existing system.
+### How It Works
+
+The "temperature" in this context isn't actual heat - it's a virtual value (0-255) that:
+- Rises quickly when someone stands near a sensor
+- Falls slowly when they move away
+- Creates a "memory" effect that persists briefly after interaction
+
+This approach helps create more engaging and stable interactions by:
+- Reducing sensor reading jitter
+- Distinguishing between passing movement and intentional presence
+- Creating smooth transitions in animations that respond to proximity
+
+### Temperature Settings
+
+The system is configured through three main parameters, managed by the `TempratureSettings` singleton class:
+
+* `TEMPRATURE_CHANGE_THRESHOLD` (default: 1000): The proximity distance in millimeters below which the virtual temperature starts increasing. When a sensor detects an object closer than this threshold (1000mm = 1m), it's considered "near"
+* `TEMP_DELTA_UP` (default: 10): How quickly the temperature rises when someone is detected nearby. Higher values make the system more responsive to presence
+* `TEMP_DELTA_DOWN` (default: 2): How quickly the temperature falls when no one is nearby. The small value relative to TEMP_DELTA_UP creates a "lingering" effect
+
+The `TempratureSettings` class is implemented as a singleton, ensuring that there's only one instance of these settings across the entire system. This guarantees that all parts of the code work with the same configuration. Additionally, these settings are automatically reset to their default values whenever the animation changes, ensuring consistent behavior at the start of each new animation.
+
+### Usage in Code
+
+To access or modify these settings in your code:
+
+```python
+# Get an instance of temperature settings (will always return the same instance)
+temp_settings = TempratureSettings()
+
+# Access the settings
+threshold = temp_settings.TEMPRATURE_CHANGE_THRESHOLD  # in millimeters
+delta_up = temp_settings.TEMP_DELTA_UP
+delta_down = temp_settings.TEMP_DELTA_DOWN
+
+# Reset settings to default values if needed (this happens automatically on animation changes)
+temp_settings.set_values_to_default()
+```
+
+### Behavior Details
+
+The system processes proximity readings as follows:
+1. Continuously monitors distance readings from each sensor
+2. When someone stands close (distance < `TEMPRATURE_CHANGE_THRESHOLD` millimeters):
+   - Virtual temperature increases by `TEMP_DELTA_UP` each cycle
+   - Quick rise helps detect intentional presence
+3. When no one is nearby:
+   - Temperature gradually decreases by `TEMP_DELTA_DOWN` each cycle
+   - Slow decay creates smooth transitions
+4. Values are capped between 0 and 255
+
+This creates a temporal smoothing effect where:
+- Brief passes near a sensor cause small temperature rises that quickly fade
+- Standing near a sensor causes the temperature to build up and stay high
+- Moving away leads to a gradual cool-down rather than an immediate drop
+
+This smoothed data is particularly useful for animations that need to respond to user presence in a stable and engaging way, avoiding jerky or overly reactive behaviors.

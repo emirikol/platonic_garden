@@ -4,4 +4,5 @@ ANIMATIONS = [
     'parabola',
     'swirling_colors',
     'sensory_orb',
+    'rippling_waves',
 ]
