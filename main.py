@@ -1,6 +1,5 @@
 import machine, neopixel
 import time
-import json
 import asyncio
 from typing import TypeVar, Generic, Callable, Optional, Dict, Any, TYPE_CHECKING
 from copy import deepcopy
@@ -14,21 +13,7 @@ from utils import SharedState
 from wifi_client import connect_to_wifi, fetch_animation_data, is_wifi_connected
 from animations import ANIMATIONS
 from read_sensor import read_sensor, TempratureSettings
-
-
-def get_layers(shape_faces: list[dict]) -> tuple[tuple[int, ...], ...]:
-    if not shape_faces:
-        return tuple()
-    max_layer = max(face['layer'] for face in shape_faces)
-    layers = [[] for _ in range(max_layer + 1)]
-    for face in shape_faces:
-        layers[face['layer']].append((face['face_id'], face['index']))
-    
-    processed_layers = []
-    for layer_list in layers:
-        layer_list.sort(key=lambda x: x[1])
-        processed_layers.append(tuple(item[0] for item in layer_list))
-    return tuple(processed_layers)
+from shape import Shape
 
 
 def get_shape(file_path: Path) -> tuple[int, int, tuple[tuple[int, ...], ...]]:
@@ -61,12 +46,7 @@ def get_animations() -> dict[str, 'ModuleType']:
 
 async def run_animations(
         np: neopixel.NeoPixel,
-        leds_per_face: int,
-        num_faces: int,
-        layers: tuple[tuple[int, ...], ...],
-        sensors_to_face: list[list[int]],
-        face_to_sensors: list[list[int]],
-        face_positions: list[list[float]],
+        shape: Shape,
         state: SharedState
     ) -> None:
     temp_settings = TempratureSettings()
@@ -76,7 +56,7 @@ async def run_animations(
         stop_event = asyncio.Event()
         temp_settings.set_values_to_default()
         task = asyncio.create_task(animations[animation_name].animate(
-            np, leds_per_face, num_faces, layers, sensors_to_face, face_to_sensors, face_positions, stop_event, state
+            np, shape, stop_event, state
             ))
         return task, stop_event
     
@@ -117,7 +97,6 @@ async def get_animation_name(state: SharedState):
             if not await is_wifi_connected():
                 await connect_to_wifi()
         else:
-            #await state.update('animation', "flashing_purple")
             await state.update('animation', animation_name)
             await asyncio.sleep(1)
 
@@ -158,10 +137,10 @@ def init_animation(np: neopixel.NeoPixel) -> None:
         time.sleep(1)
 
 def main():
-    shape = Path('shape.txt').read_text().strip()
-    leds_per_face, num_faces, layers, sensors_to_face, face_to_sensors, face_positions = get_shape(Path(f'shapes/{shape}.json'))
+    shape_name = Path('shape.txt').read_text().strip()
+    shape = Shape(Path(f'shapes/{shape_name}.json'))
 
-    np = neopixel.NeoPixel(machine.Pin(18, machine.Pin.OUT), leds_per_face * num_faces)
+    np = neopixel.NeoPixel(machine.Pin(18, machine.Pin.OUT), shape.leds_per_face * shape.num_faces)
 
     init_animation(np)
 
@@ -172,7 +151,7 @@ def main():
 
     state = SharedState(initial_state)
     tasks = []
-    tasks.append(run_animations(np, leds_per_face, num_faces, layers,sensors_to_face, face_to_sensors, face_positions, state))
+    tasks.append(run_animations(np, shape, state))
     tasks.append(get_animation_name(state))
     tasks.append(read_sensor(state))
     tasks.append(restart_in_30_minutes())

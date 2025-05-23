@@ -1,8 +1,4 @@
-def set_face_color(np, leds_per_face, face_index, color):
-    face_offset = leds_per_face * face_index
-    for i in range(leds_per_face):
-        np[face_offset + i] = color
-
+from typing import Tuple
 
 def get_all_colors() -> list[tuple[int, int, int]]:
     possible_values = [0,127, 255]

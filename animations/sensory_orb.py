@@ -2,8 +2,10 @@ import asyncio
 import math
 import random
 import time
-from animations.utils import set_face_color, get_all_colors
+from animations.utils import get_all_colors
 from utils import SharedState
+from shape import Shape
+import neopixel
 
 # Physics parameters (from parabola.py, potentially adjustable)
 G = 8.0  # m/s² (acts in -z_orb direction, which is vertical)
@@ -58,13 +60,8 @@ def step_orb_motion(x_orb, z_orb_vertical, vx_orb, vz_orb_vertical):
 
 
 async def animate(
-        np: 'neopixel.NeoPixel',
-        leds_per_face: int,
-        num_faces: int,
-        layers: tuple[tuple[int, ...], ...],
-        sensors_to_face: list[list[int]],
-        face_to_sensors: list[list[int]],
-        face_positions: list[list[float]], # Expected: [x, y_horizontal, z_vertical] or [std_x, std_y, std_z]
+        np: neopixel.NeoPixel,
+        shape: Shape,
         stop_event: asyncio.Event,
         state: SharedState
 ) -> None:
@@ -113,7 +110,7 @@ async def animate(
     orb_x, orb_z_vertical = 0.0, 0.01 # Start slightly above ground
     vx_orb, vz_orb_vertical = INITIAL_VX_ORB, INITIAL_VZ_ORB_VERTICAL
     
-    face_phases = [random.uniform(0, 2 * math.pi) for _ in range(num_faces)] # Random initial phases
+    face_phases = [random.uniform(0, 2 * math.pi) for _ in range(shape.num_faces)] # Random initial phases
 
     np.fill((0,0,0))
     np.write()
@@ -144,8 +141,8 @@ async def animate(
             orb_x, orb_z_vertical, vx_orb, vz_orb_vertical
         )
 
-        for face_id in range(num_faces):
-            face_pos = face_positions[face_id] # Expected: [x, y_vertical, z_depth]
+        for face_id in range(shape.num_faces):
+            face_pos = shape.face_positions[face_id] # Expected: [x, y_vertical, z_depth]
 
             # 1. Calculate effect of orb proximity on brightness
             dist_sq_to_orb = (
@@ -162,8 +159,8 @@ async def animate(
             min_sensor_dist_mm = float('inf')
             sensor_pulse_active = False
             
-            if face_id < len(face_to_sensors) and face_to_sensors[face_id]:
-                for sensor_idx in face_to_sensors[face_id]:
+            if face_id < len(shape.face_to_sensors) and shape.face_to_sensors[face_id]:
+                for sensor_idx in shape.face_to_sensors[face_id]:
                     if sensor_idx < len(sensor_readings_tuples) and sensor_readings_tuples[sensor_idx] is not None:
                         # Assuming sensor_readings_tuples[sensor_idx] is (distance, temp)
                         # and distance is not excessively large (e.g. > MAX_SENSOR_DISTANCE_MM for "no object")
@@ -200,43 +197,23 @@ async def animate(
                 interpolation_factor_for_pulse = 0.5 + 0.5 * math.sin(face_phases[face_id])
             # else: interpolation_factor_for_pulse remains 0.0, so orb_base_color is used before brightness scaling
 
-            # Combine effects: Orb proximity scales the base color, then pulse modulates it
-            # Final brightness is product of orb proximity and pulse modulation
-            # Allow pulse to make face bright even if orb is far, or make it dimmer.
-            # Let's make the pulse modulate the orb's light.
-            # If orb_proximity_brightness_factor is 0, then face is dark.
-            # If orb_proximity_brightness_factor is >0, then pulse applies.
-            # pulse_modulation_factor range [0.5, 1.0] -> this works as a scaler.
-            
-            # Interpolate between orb_base_color and pulse_target_color based on sensor pulse
-            base_r, base_g, base_b = orb_base_color
-            pulse_r, pulse_g, pulse_b = pulse_target_color
+            # 3. Combine orb and pulse effects to determine final color
+            # Start with orb base color
+            final_color = list(orb_base_color)
 
-            interp_r = base_r * (1.0 - interpolation_factor_for_pulse) + pulse_r * interpolation_factor_for_pulse
-            interp_g = base_g * (1.0 - interpolation_factor_for_pulse) + pulse_g * interpolation_factor_for_pulse
-            interp_b = base_b * (1.0 - interpolation_factor_for_pulse) + pulse_b * interpolation_factor_for_pulse
+            # If pulse is active, interpolate between orb_base_color and pulse_target_color
+            if interpolation_factor_for_pulse > 0:
+                for i in range(3): # RGB channels
+                    final_color[i] = int(
+                        final_color[i] * (1 - interpolation_factor_for_pulse) +
+                        pulse_target_color[i] * interpolation_factor_for_pulse
+                    )
 
-            # Apply orb proximity brightness factor to the interpolated color
-            final_brightness = orb_proximity_brightness_factor # Proximity factor directly scales the result
+            # Apply orb proximity brightness
+            final_color = [int(c * orb_proximity_brightness_factor) for c in final_color]
 
-            # Apply to base color
-            final_color_r = int(interp_r * final_brightness)
-            final_color_g = int(interp_g * final_brightness)
-            final_color_b = int(interp_b * final_brightness)
-            
-            # Clamp color values
-            final_color = (
-                max(0, min(255, final_color_r)),
-                max(0, min(255, final_color_g)),
-                max(0, min(255, final_color_b))
-            )
-            
-            set_face_color(np, leds_per_face, face_id, final_color)
+            # Set the face color
+            shape.set_face_color(np, face_id, tuple(final_color))
 
         np.write()
-
-        # Frame delay
-        frame_duration_ns = time.time_ns() - frame_start_ns
-        sleep_ms = FRAME_TIME_MS - (frame_duration_ns // 1_000_000)
-        if sleep_ms > 0:
-            await asyncio.sleep_ms(sleep_ms) 
+        await asyncio.sleep_ms(int(FRAME_TIME_MS - (time.time_ns() - frame_start_ns)/1000000)) 

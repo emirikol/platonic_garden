@@ -2,8 +2,9 @@ import asyncio
 import math
 import random
 import time
-from animations.utils import set_face_color
 from utils import SharedState
+from shape import Shape
+import neopixel
 
 
 # physics parameters (unchanged)
@@ -39,13 +40,8 @@ def step(x, z, y, vx, vz):
 
 
 async def animate(
-        np: 'neopixel.NeoPixel',
-        leds_per_face: int,
-        num_faces: int,
-        layers: tuple[tuple[int, ...], ...],
-        sensors_to_face: list[list[int]],
-        face_to_sensors: list[list[int]],
-        face_positions: list[list[float]],
+        np: neopixel.NeoPixel,
+        shape: Shape,
         stop_event: asyncio.Event,
         state: SharedState
     ) -> None:
@@ -61,17 +57,17 @@ async def animate(
         frame_start = time.time_ns()
         distances = (await state.get()).get('distances')
         x, z, y, vx, vz = step(x, z, y, vx, vz)
-        for face_id, face_pos in enumerate(face_positions):
+        for face_id, face_pos in enumerate(shape.face_positions):
             distance = min(1.0, math.sqrt((x - face_pos[0])**2 + (z - face_pos[1])**2 + (y - face_pos[2])**2))
             color = [0, 0, 0]
             color[max_color_channel] = 255
             color[ball_channel] = int(255 * (1 - distance))
-            if len(face_to_sensors[face_id]) == 0:
+            if len(shape.face_to_sensors[face_id]) == 0:
                 sensor_color = 0
             else:
-                sensor_color = max([distances[sensor][1] for sensor in face_to_sensors[face_id]])
+                sensor_color = max([distances[sensor][1] for sensor in shape.face_to_sensors[face_id]])
             color[sensor_channel] = sensor_color
-            set_face_color(np, leds_per_face, face_id, tuple(color))
+            shape.set_face_color(np, face_id, tuple(color))
         np.write()
         await asyncio.sleep_ms(int(FRAME_TIME_MS - (time.time_ns() - frame_start)/1000000))
 
