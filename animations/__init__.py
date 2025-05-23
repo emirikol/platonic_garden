@@ -5,4 +5,5 @@ ANIMATIONS = [
     'swirling_colors',
     'sensory_orb',
     'rippling_waves',
+    'moving_plane',
 ]
