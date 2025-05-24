@@ -112,7 +112,6 @@ The `animate` function must have the following signature:
 
 ```python
 async def animate(
-        np: neopixel.NeoPixel,
         shape: Shape,
         stop_event: asyncio.Event,
         state: SharedState
@@ -121,8 +120,7 @@ async def animate(
 
 **Parameters:**
 
-*   `np: neopixel.NeoPixel`: The NeoPixel object instance used to control the LEDs. You'll use this object's methods (e.g., `np.write()`, `np[i] = (r, g, b)`) to set LED colors.
-*   `shape: Shape`: The Shape object containing all shape-related data:
+*   `shape: Shape`: The Shape object containing all shape-related data and LED control:
     *   `shape.name: str`: The name of the shape (filename without .json extension, e.g. 'cube', 'icosahedron').
     *   `shape.leds_per_face: int`: The number of LEDs present on each face of the 3D shape.
     *   `shape.num_faces: int`: The total number of faces on the 3D shape.
@@ -130,7 +128,10 @@ async def animate(
     *   `shape.sensors_to_face: list[list[int]]`: A mapping from sensor ID to a list of face IDs. `shape.sensors_to_face[sensor_id]` gives a list of faces associated with that sensor.
     *   `shape.face_to_sensors: list[list[int]]`: A mapping from face ID to a list of sensor IDs. `shape.face_to_sensors[face_id]` gives a list of sensors located on that face.
     *   `shape.face_positions: list[list[float]]`: A list containing the 3D coordinates `[x, y, z]` for the center of each face. The order corresponds to face IDs.
-    *   `shape.set_face_color(np: neopixel.NeoPixel, face_id: int, color: tuple[int, int, int]) -> None`: Method to set all LEDs in a face to a specific color.
+    *   `shape.set_face_color(face_id, color): Method to set all LEDs in a face to a specific color.
+    *   `shape.write(): Method to update the physical LEDs.
+    *   `shape[led_index] = (red, green, blue): Method to set individual LED colors.
+    *   `shape.fill(color): Method to fill all LEDs with a specific color.
 *   `stop_event: asyncio.Event`: An `asyncio.Event` that signals when the animation should terminate. Your animation loop should periodically check `stop_event.is_set()` and exit gracefully if it's true.
 *   `state: SharedState`: A shared state object allowing access to global data, such as sensor readings or commands from other parts of the system (e.g., `(await state.get()).get('distances')`).
 
@@ -152,16 +153,15 @@ A typical `animate` function will have the following structure:
         # 2. Implement your animation logic:
         #    Calculate LED colors based on time, sensor data, positions, layers, etc.
         #    For example, to set the color of a specific face:
-        #    shape.set_face_color(np, face_id, (red, green, blue))
+        #    shape.set_face_color(face_id, (red, green, blue))
         #    Or, to set individual LEDs on a face (more advanced):
         #    for i in range(shape.leds_per_face):
         #        led_index = face_id * shape.leds_per_face + i
-        #        np[led_index] = (red, green, blue)
-
+        #        shape.np[led_index] = (red, green, blue)
 
         # 3. Update LEDs:
-        #    Call np.write() to apply the new colors to the physical LEDs.
-        #    np.write()
+        #    Call shape.write() to apply the new colors to the physical LEDs.
+        #    shape.write()
 
         # 4. Frame Rate Control:
         #    Pause execution to maintain the desired frame rate.

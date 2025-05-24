@@ -6,7 +6,6 @@ from animations.utils import get_all_colors
 from utils import SharedState
 from read_sensor import TempratureSettings
 from shape import Shape
-import neopixel
 
 # Animation timing constants
 FRAME_TIME_MS = int(1000/20)  # 20 FPS
@@ -21,34 +20,29 @@ def normalize_vector(v):
     return tuple(x/magnitude for x in v)
 
 def distance_to_plane(point, plane_point, plane_normal):
-    """Calculate signed distance from a point to a plane.
-    The plane is defined by a point on the plane (plane_point) and its normal vector (plane_normal).
-    Returns the shortest distance from the point to the plane."""
-    # Normalize the plane normal
-    plane_normal = normalize_vector(plane_normal)
-    
-    # The plane equation is: ax + by + cz + d = 0
-    # where (a,b,c) is the normal vector and d = -(ax₀ + by₀ + cz₀) for a point (x₀,y₀,z₀) on the plane
-    d = -(plane_normal[0] * plane_point[0] + 
-          plane_normal[1] * plane_point[1] + 
-          plane_normal[2] * plane_point[2])
-    
-    # The distance formula is: |ax + by + cz + d| / √(a² + b² + c²)
-    # Since we normalized the normal vector, √(a² + b² + c²) = 1
-    return abs(plane_normal[0] * point[0] + 
-               plane_normal[1] * point[1] + 
-               plane_normal[2] * point[2] + d)
+    """Calculate signed distance from a point to a plane."""
+    # Plane equation: ax + by + cz + d = 0
+    # where (a,b,c) is the normal vector and d = -(ax0 + by0 + cz0)
+    # for a point (x0,y0,z0) on the plane
+    a, b, c = plane_normal
+    x0, y0, z0 = plane_point
+    d = -(a*x0 + b*y0 + c*z0)
+    x, y, z = point
+    return abs(a*x + b*y + c*z + d) / math.sqrt(a*a + b*b + c*c)
 
-def interpolate_colors(color1, color2, factor):
-    """Interpolate between two colors based on a factor (0 to 1)."""
-    return (
-        int(color1[0] + (color2[0] - color1[0]) * factor),
-        int(color1[1] + (color2[1] - color1[1]) * factor),
-        int(color1[2] + (color2[2] - color1[2]) * factor)
-    )
+
+def interpolate_channel(channel1, channel2, t):
+    if t > 1 or t < 0:
+        print(f"t is {t}")
+        return channel1
+    distance = channel1 - channel2
+    distance_to_cover = math.floor(distance * t)
+    return channel1 - distance_to_cover
+
+def interpolate_colors(color1, color2, t):
+    return tuple(interpolate_channel(c1, c2, t) for c1, c2 in zip(color1, color2))
 
 async def animate(
-        np: neopixel.NeoPixel,
         shape: Shape,
         stop_event: asyncio.Event,
         state: SharedState
@@ -158,7 +152,6 @@ async def animate(
             dist = abs(distance_to_plane(face_pos, plane_point, plane_normal))
             # Clamp distance to 0-1 range
             dist = max(0.0, min(1.0, dist))
-            
             # Interpolate between foreground and background based on distance
             color_by_plane = interpolate_colors(foreground_color, background_color, dist)
             
@@ -178,10 +171,10 @@ async def animate(
             final_color = interpolate_colors(color_by_plane, sensor_color, temp_factor)
             
             # Set the face color
-            shape.set_face_color(np, face_idx, final_color)
+            shape.set_face_color(face_idx, final_color)
         
         # Update the LEDs
-        np.write()
+        shape.write()
         
         # Calculate how long the processing took
         calc_time = time.ticks_diff(time.ticks_ms(), calc_start)

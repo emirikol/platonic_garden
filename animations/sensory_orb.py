@@ -5,7 +5,6 @@ import time
 from animations.utils import get_all_colors
 from utils import SharedState
 from shape import Shape
-import neopixel
 
 # Physics parameters (from parabola.py, potentially adjustable)
 G = 8.0  # m/s² (acts in -z_orb direction, which is vertical)
@@ -27,40 +26,29 @@ SENSOR_DIST_FOR_MIN_FREQ = 200 # mm (sensor units, e.g., object at 200mm for min
 # Max raw sensor distance reading, used for clamping. (VL53L1X can report up to 4000mm in ideal conditions)
 # For pulsing logic, we might only care about a smaller range, e.g. up to 255 if that's what "distances" provides.
 # Let's assume distances are in mm and we care about the SENSOR_DIST_FOR_MIN_FREQ range.
-MAX_SENSOR_DISTANCE_MM = 255 # Assuming sensor readings are capped or relevant up to this.
+MAX_SENSOR_DISTANCE_MM = 255
 
+def interpolate_colors(color1, color2, factor):
+    """Interpolate between two colors based on a factor (0 to 1)."""
+    return (
+        int(color1[0] + (color2[0] - color1[0]) * factor),
+        int(color1[1] + (color2[1] - color1[1]) * factor),
+        int(color1[2] + (color2[2] - color1[2]) * factor)
+    )
 
-def step_orb_motion(x_orb, z_orb_vertical, vx_orb, vz_orb_vertical):
-    """
-    Advance the orb's position and velocity by one time slice (DT).
-    Handles bounces and resets based on predefined boundaries.
-    Matches parabola.py's physics logic, with z_orb_vertical being the vertical axis.
-    """
-    # 1. Integrate motion for DT
-    x_orb += vx_orb * DT
-    z_orb_vertical += vz_orb_vertical * DT - 0.5 * G * DT * DT
-    vz_orb_vertical -= G * DT
-
-    # 2. Check for contact with the "ground" (z_orb_vertical <= 0) and boundaries (x_orb)
-    if z_orb_vertical <= 0.0:
-        if x_orb <= 0.0:  # Hit ground on left side or overshoot
-            x_orb, z_orb_vertical = 0.0, 0.0
-            vx_orb, vz_orb_vertical = INITIAL_VX_ORB, INITIAL_VZ_ORB_VERTICAL
-        elif x_orb >= 1.0:  # Hit ground on right side or overshoot
-            x_orb, z_orb_vertical = 1.0, 0.0
-            vx_orb, vz_orb_vertical = -INITIAL_VX_ORB, INITIAL_VZ_ORB_VERTICAL
-        else: # Landed on the ground within x boundaries
-            z_orb_vertical = 0.0
-            vz_orb_vertical = 0.0 # Stop vertical motion, could also add some bounce damping
+def get_pulse_frequency(distance_mm):
+    """Convert sensor distance to pulse frequency."""
+    # Clamp distance to valid range
+    distance_mm = max(SENSOR_DIST_FOR_MAX_FREQ, min(distance_mm, SENSOR_DIST_FOR_MIN_FREQ))
     
-    # Optional: Add horizontal boundaries if needed, e.g., if x_orb goes < 0 or > 1 while in air.
-    # For now, matching parabola.py which only resets on ground contact with boundary conditions.
-
-    return x_orb, z_orb_vertical, vx_orb, vz_orb_vertical
-
+    # Normalize distance to 0-1 range (inverted so closer = higher value)
+    dist_factor = 1.0 - ((distance_mm - SENSOR_DIST_FOR_MAX_FREQ) / 
+                        (SENSOR_DIST_FOR_MIN_FREQ - SENSOR_DIST_FOR_MAX_FREQ))
+    
+    # Interpolate between min and max frequency
+    return PULSE_FREQ_MIN_HZ + (PULSE_FREQ_MAX_HZ - PULSE_FREQ_MIN_HZ) * dist_factor
 
 async def animate(
-        np: neopixel.NeoPixel,
         shape: Shape,
         stop_event: asyncio.Event,
         state: SharedState
@@ -107,113 +95,107 @@ async def animate(
     # f_pos[2] is std_z_depth
     # This is consistent.
 
-    orb_x, orb_z_vertical = 0.0, 0.01 # Start slightly above ground
-    vx_orb, vz_orb_vertical = INITIAL_VX_ORB, INITIAL_VZ_ORB_VERTICAL
+    orb_x, orb_z_vertical = 0.0, 0.01
+    orb_vx, orb_vz_vertical = INITIAL_VX_ORB, INITIAL_VZ_ORB_VERTICAL
     
-    face_phases = [random.uniform(0, 2 * math.pi) for _ in range(shape.num_faces)] # Random initial phases
-
-    np.fill((0,0,0))
-    np.write()
-
+    # Sensor pulse phases (one per face)
+    face_pulse_phases = [0.0] * shape.num_faces
+    face_pulse_freqs = [PULSE_FREQ_MIN_HZ] * shape.num_faces
+    
+    # Animation loop
+    last_frame_time = time.ticks_ms()
+    
     while not stop_event.is_set():
-        frame_start_ns = time.time_ns()
-        current_time_ms = time.ticks_ms() # Current time for logic
-        dt_seconds = FRAME_TIME_MS / 1000.0
-
-        # Update orb base color periodically
-        # ORB_BASE_COLOR_CYCLE_TIME_S is in seconds, convert to ms
-        if time.ticks_diff(current_time_ms, last_orb_color_change_time_ms) > (ORB_BASE_COLOR_CYCLE_TIME_S * 1000):
-            current_orb_color_index = (current_orb_color_index + 1) % len(all_colors)
-            # Update pulse target color to be the next one, ensuring it cycles
-            current_pulse_target_color_index = (current_orb_color_index + 1) % len(all_colors)
+        frame_start = time.ticks_ms()
+        
+        # Get sensor data
+        sensor_data = (await state.get()).get("distances", [])
+        
+        # Update orb physics
+        dt = time.ticks_diff(frame_start, last_frame_time) / 1000.0  # Convert to seconds
+        last_frame_time = frame_start
+        
+        # Update orb position and velocity
+        orb_x += orb_vx * dt
+        orb_z_vertical += orb_vz_vertical * dt
+        orb_vz_vertical -= G * dt  # Apply gravity
+        
+        # Check boundaries and bounce/reset
+        if orb_x <= 0:
+            orb_x = 0.0
+            orb_vx = INITIAL_VX_ORB
+        elif orb_x >= 1:
+            orb_x = 1.0
+            orb_vx = -INITIAL_VX_ORB
             
+        if orb_z_vertical <= 0:
+            orb_z_vertical = 0.0
+            orb_vz_vertical = INITIAL_VZ_ORB_VERTICAL
+            
+        # Check for orb color change
+        current_time_ms = time.ticks_ms()
+        if time.ticks_diff(current_time_ms, last_orb_color_change_time_ms) >= ORB_BASE_COLOR_CYCLE_TIME_S * 1000:
+            # Update color indices
+            current_orb_color_index = (current_orb_color_index + 1) % len(all_colors)
+            current_pulse_target_color_index = (current_pulse_target_color_index + 1) % len(all_colors)
+            
+            # Update colors
             orb_base_color = all_colors[current_orb_color_index]
             pulse_target_color = all_colors[current_pulse_target_color_index]
+            
             last_orb_color_change_time_ms = current_time_ms
-        # No else needed, orb_base_color and pulse_target_color persist from previous state or initialization
-
-        # Get sensor data
-        shared_data = await state.get()
-        sensor_readings_tuples = shared_data.get("distances", []) # List of (distance_mm, temperature)
-
-        # Update orb position
-        orb_x, orb_z_vertical, vx_orb, vz_orb_vertical = step_orb_motion(
-            orb_x, orb_z_vertical, vx_orb, vz_orb_vertical
-        )
-
-        for face_id in range(shape.num_faces):
-            face_pos = shape.face_positions[face_id] # Expected: [x, y_vertical, z_depth]
-
-            # 1. Calculate effect of orb proximity on brightness
-            dist_sq_to_orb = (
-                (orb_x - face_pos[0])**2 +             # delta_x^2
-                (orb_z_vertical - face_pos[1])**2 +    # delta_y_vertical^2 (orb_z_vert vs face_y_vert)
-                (ORB_Y_DEPTH - face_pos[2])**2         # delta_z_depth^2 (fixed orb_y_depth vs face_z_depth)
-            )
-            dist_to_orb = math.sqrt(dist_sq_to_orb)
+        
+        # Update each face
+        for face_idx in range(shape.num_faces):
+            face_pos = shape.face_positions[face_idx]
             
-            # Orb brightness factor (1.0 at dist=0, 0.0 at ORB_MAX_EFFECT_DISTANCE)
-            orb_proximity_brightness_factor = max(0.0, 1.0 - (dist_to_orb / ORB_MAX_EFFECT_DISTANCE))
-
-            # 2. Calculate sensor-driven pulse modulation
-            min_sensor_dist_mm = float('inf')
-            sensor_pulse_active = False
+            # Calculate distance from orb to face
+            dist_sq = ((orb_x - face_pos[0])**2 + 
+                      (orb_z_vertical - face_pos[1])**2 + 
+                      (ORB_Y_DEPTH - face_pos[2])**2)
+            dist = math.sqrt(dist_sq)
             
-            if face_id < len(shape.face_to_sensors) and shape.face_to_sensors[face_id]:
-                for sensor_idx in shape.face_to_sensors[face_id]:
-                    if sensor_idx < len(sensor_readings_tuples) and sensor_readings_tuples[sensor_idx] is not None:
-                        # Assuming sensor_readings_tuples[sensor_idx] is (distance, temp)
-                        # and distance is not excessively large (e.g. > MAX_SENSOR_DISTANCE_MM for "no object")
-                        # Distance from sensor is typically in mm.
-                        current_sensor_reading = sensor_readings_tuples[sensor_idx]
-                        current_sensor_dist = current_sensor_reading[0] # This could be None
-
-                        # Ensure current_sensor_dist is a number before comparison
-                        if current_sensor_dist is not None and current_sensor_dist < SENSOR_DIST_FOR_MIN_FREQ : # Only consider "close" objects for pulsing
-                             min_sensor_dist_mm = min(min_sensor_dist_mm, current_sensor_dist)
-                             sensor_pulse_active = True # Activate pulse if any mapped sensor detects something close enough
+            # Normalize distance for color interpolation
+            dist_factor = min(1.0, dist / ORB_MAX_EFFECT_DISTANCE)
             
-            interpolation_factor_for_pulse = 0.0 # Default: shows orb_base_color
-
-            if sensor_pulse_active and min_sensor_dist_mm <= SENSOR_DIST_FOR_MIN_FREQ : # Check again in case min_sensor_dist_mm wasn't updated
-                # Clamp distance for frequency calculation
-                clamped_dist = max(SENSOR_DIST_FOR_MAX_FREQ, min(min_sensor_dist_mm, SENSOR_DIST_FOR_MIN_FREQ))
-                
-                frequency_hz = PULSE_FREQ_MIN_HZ # Default to min frequency
-                # Ratio: 1.0 for SENSOR_DIST_FOR_MAX_FREQ, 0.0 for SENSOR_DIST_FOR_MIN_FREQ
-                # Avoid division by zero if min and max dists are the same
-                denom = SENSOR_DIST_FOR_MIN_FREQ - SENSOR_DIST_FOR_MAX_FREQ
-                if denom > 0:
-                    ratio = (SENSOR_DIST_FOR_MIN_FREQ - clamped_dist) / denom
-                    frequency_hz = PULSE_FREQ_MIN_HZ + (PULSE_FREQ_MAX_HZ - PULSE_FREQ_MIN_HZ) * ratio
-                elif min_sensor_dist_mm <= SENSOR_DIST_FOR_MAX_FREQ: # If denom is 0 or less, and we are at/below max_freq distance
-                    frequency_hz = PULSE_FREQ_MAX_HZ
-                
-                # Update phase for this face
-                face_phases[face_id] += 2 * math.pi * frequency_hz * dt_seconds
-                face_phases[face_id] %= (2 * math.pi)
-                
-                # Interpolation factor: varies between 0.0 (orb_base_color) and 1.0 (pulse_target_color)
-                interpolation_factor_for_pulse = 0.5 + 0.5 * math.sin(face_phases[face_id])
-            # else: interpolation_factor_for_pulse remains 0.0, so orb_base_color is used before brightness scaling
-
-            # 3. Combine orb and pulse effects to determine final color
-            # Start with orb base color
-            final_color = list(orb_base_color)
-
-            # If pulse is active, interpolate between orb_base_color and pulse_target_color
-            if interpolation_factor_for_pulse > 0:
-                for i in range(3): # RGB channels
-                    final_color[i] = int(
-                        final_color[i] * (1 - interpolation_factor_for_pulse) +
-                        pulse_target_color[i] * interpolation_factor_for_pulse
-                    )
-
-            # Apply orb proximity brightness
-            final_color = [int(c * orb_proximity_brightness_factor) for c in final_color]
-
+            # Get sensor data for this face
+            max_sensor_temp = 0
+            min_sensor_dist = MAX_SENSOR_DISTANCE_MM
+            if face_idx < len(shape.face_to_sensors):
+                for sensor_idx in shape.face_to_sensors[face_idx]:
+                    if (sensor_idx < len(sensor_data) and 
+                        sensor_data[sensor_idx] is not None):
+                        # Get temperature and distance from sensor data tuple
+                        sensor_dist, sensor_temp = sensor_data[sensor_idx]
+                        if sensor_temp is not None:
+                            max_sensor_temp = max(max_sensor_temp, sensor_temp)
+                        if sensor_dist is not None:
+                            min_sensor_dist = min(min_sensor_dist, sensor_dist)
+            
+            # Update pulse frequency based on closest sensor distance
+            face_pulse_freqs[face_idx] = get_pulse_frequency(min_sensor_dist)
+            
+            # Update pulse phase
+            face_pulse_phases[face_idx] += face_pulse_freqs[face_idx] * 2 * math.pi * dt
+            
+            # Calculate pulse factor (0 to 1)
+            pulse_factor = 0.5 + 0.5 * math.sin(face_pulse_phases[face_idx])
+            
+            # Combine orb influence with sensor temperature
+            # First interpolate between orb colors based on distance
+            orb_color = interpolate_colors(orb_base_color, pulse_target_color, dist_factor)
+            
+            # Then factor in sensor temperature
+            temp_factor = max_sensor_temp / 255.0  # Normalize to 0-1
+            final_color = interpolate_colors(orb_color, pulse_target_color, temp_factor * pulse_factor)
+            
             # Set the face color
-            shape.set_face_color(np, face_id, tuple(final_color))
-
-        np.write()
-        await asyncio.sleep_ms(int(FRAME_TIME_MS - (time.time_ns() - frame_start_ns)/1000000)) 
+            shape.set_face_color(face_idx, final_color)
+        
+        # Update LEDs
+        shape.write()
+        
+        # Frame timing
+        frame_duration = time.ticks_diff(time.ticks_ms(), frame_start)
+        if frame_duration < FRAME_TIME_MS:
+            await asyncio.sleep_ms(FRAME_TIME_MS - frame_duration) 

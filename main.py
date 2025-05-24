@@ -45,7 +45,6 @@ def get_animations() -> dict[str, 'ModuleType']:
 
 
 async def run_animations(
-        np: neopixel.NeoPixel,
         shape: Shape,
         state: SharedState
     ) -> None:
@@ -56,7 +55,7 @@ async def run_animations(
         stop_event = asyncio.Event()
         temp_settings.set_values_to_default()
         task = asyncio.create_task(animations[animation_name].animate(
-            np, shape, stop_event, state
+            shape, stop_event, state
             ))
         return task, stop_event
     
@@ -81,7 +80,7 @@ async def run_animations(
             await asyncio.sleep(0.05)
         except Exception as e:
             sys.print_exception(e)
-            error_animation(np)
+            error_animation(shape)
 
 
 async def restart_in_30_minutes() -> None:
@@ -101,20 +100,21 @@ async def get_animation_name(state: SharedState):
             await asyncio.sleep(1)
 
 
-def error_animation(np: neopixel.NeoPixel) -> None:
+def error_animation(shape: Shape) -> None:
     try:
         for i in range(3):
-            np.fill((255, 0, 0))
-            np.write()
-            time.sleep(0.5)
-            np.fill((0, 0, 0))
-            np.write()
-            time.sleep(0.5)
+            for face in range(shape.num_faces):
+                shape.set_face_color(face, (255, 0, 0))
+                shape.write()
+                time.sleep(0.5)
+                shape.set_face_color(face, (0, 0, 0))
+                shape.write()
+                time.sleep(0.5)
     except Exception as e:
         sys.print_exception(e)
 
 
-def init_animation(np: neopixel.NeoPixel) -> None:
+def init_animation(shape: Shape) -> None:
     print("""
        ^     +------+.           /\              _----------_,                 _-_. 
       /|\    |`.    | `.       .'  `.          ,"__         _-:,            _-',^. `-_.
@@ -132,17 +132,16 @@ def init_animation(np: neopixel.NeoPixel) -> None:
     for i in range(3):
         color = [0, 0, 0]
         color[i] = 255
-        np.fill(tuple(color))
-        np.write()
+        for face in range(shape.num_faces):
+            shape.set_face_color(face, tuple(color))
+            shape.write()
         time.sleep(1)
 
 def main():
     shape_name = Path('shape.txt').read_text().strip()
     shape = Shape(Path(f'shapes/{shape_name}.json'))
 
-    np = neopixel.NeoPixel(machine.Pin(18, machine.Pin.OUT), shape.leds_per_face * shape.num_faces)
-
-    init_animation(np)
+    init_animation(shape)
 
     initial_state = {
         'animation': None,
@@ -151,7 +150,7 @@ def main():
 
     state = SharedState(initial_state)
     tasks = []
-    tasks.append(run_animations(np, shape, state))
+    tasks.append(run_animations(shape, state))
     tasks.append(get_animation_name(state))
     tasks.append(read_sensor(state))
     tasks.append(restart_in_30_minutes())
