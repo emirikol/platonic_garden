@@ -61,7 +61,8 @@ async def animate(
         frame_start = utime.ticks_ms()
         distances = (await state.get()).get('distances')
         x, z, y, vx, vz = step(x, z, y, vx, vz)
-        print(f"Ball position - x: {x:.2f}, y: {y:.2f}, z: {z:.2f}, vx: {vx:.2f}, vz: {vz:.2f}")
+        if False:
+            print(f"Ball position - x: {x:.2f}, y: {y:.2f}, z: {z:.2f}, vx: {vx:.2f}, vz: {vz:.2f}")
         for face_id, face_pos in enumerate(shape.face_positions):
             distance = max(0, min(1.0, math.sqrt((x - face_pos[0])**2 + (z - face_pos[1])**2 + (y - face_pos[2])**2)))
             color = [0, 0, 0]
@@ -73,8 +74,6 @@ async def animate(
                 sensor_color = max([distances[sensor][1] for sensor in shape.face_to_sensors[face_id]])
             color[sensor_channel] = sensor_color
             shape.set_face_color(face_id, tuple(color))
-            if face_id == 0:
-                print(f"Face {face_id} color: {color}")
         shape.write()
         await asyncio.sleep_ms(int(FRAME_TIME_MS - (utime.ticks_ms() - frame_start)))
 
