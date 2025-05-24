@@ -2,9 +2,11 @@ import asyncio
 import time
 import math
 import random
-from animations.utils import get_all_colors, set_face_color
+from animations.utils import get_all_colors
 from utils import SharedState
 from read_sensor import TempratureSettings
+from shape import Shape
+import neopixel
 
 # Animation timing constants
 FRAME_TIME_MS = int(1000/20)  # 20 FPS
@@ -46,13 +48,8 @@ def interpolate_colors(color1, color2, factor):
     )
 
 async def animate(
-        np: 'neopixel.NeoPixel',
-        leds_per_face: int,
-        num_faces: int,
-        layers: tuple[tuple[int, ...], ...],
-        sensors_to_face: list[list[int]],
-        face_to_sensors: list[list[int]],
-        face_positions: list[list[float]],
+        np: neopixel.NeoPixel,
+        shape: Shape,
         stop_event: asyncio.Event,
         state: SharedState
     ) -> None:
@@ -110,7 +107,7 @@ async def animate(
         frame_start = time.ticks_ms()
         
         # Debug printing with rate limiting
-        if time.ticks_diff(frame_start, last_debug_print) > DEBUG_PRINT_INTERVAL_MS:
+        if False and time.ticks_diff(frame_start, last_debug_print) > DEBUG_PRINT_INTERVAL_MS:
             print(f"Plane position: ({plane_point[0]:.2f}, {plane_point[1]:.2f}, {plane_point[2]:.2f})")
             print(f"Moving {'forward' if moving_forward else 'backward'}\n")
             last_debug_print = frame_start
@@ -144,7 +141,8 @@ async def animate(
                 1 - point[1],
                 1 - point[2]
             ))
-            print(f"\nPlane reversed direction! New position: ({plane_point[0]:.2f}, {plane_point[1]:.2f}, {plane_point[2]:.2f})")
+            if False:
+                print(f"\nPlane reversed direction! New position: ({plane_point[0]:.2f}, {plane_point[1]:.2f}, {plane_point[2]:.2f})")
         
         # Get sensor data
         sensor_data = (await state.get()).get("distances", [])
@@ -153,8 +151,8 @@ async def animate(
         calc_start = time.ticks_ms()
         
         # Update each face's color
-        for face_idx in range(num_faces):
-            face_pos = face_positions[face_idx]
+        for face_idx in range(shape.num_faces):
+            face_pos = shape.face_positions[face_idx]
             
             # Calculate distance to plane
             dist = abs(distance_to_plane(face_pos, plane_point, plane_normal))
@@ -166,8 +164,8 @@ async def animate(
             
             # Get maximum temperature for this face
             max_temp = 0
-            if face_idx < len(face_to_sensors):
-                for sensor_idx in face_to_sensors[face_idx]:
+            if face_idx < len(shape.face_to_sensors):
+                for sensor_idx in shape.face_to_sensors[face_idx]:
                     if (sensor_idx < len(sensor_data) and 
                         sensor_data[sensor_idx] is not None and 
                         sensor_data[sensor_idx][1] is not None):
@@ -180,7 +178,7 @@ async def animate(
             final_color = interpolate_colors(color_by_plane, sensor_color, temp_factor)
             
             # Set the face color
-            set_face_color(np, leds_per_face, face_idx, final_color)
+            shape.set_face_color(np, face_idx, final_color)
         
         # Update the LEDs
         np.write()

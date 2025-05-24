@@ -2,9 +2,12 @@ import asyncio
 import time
 import math
 import random
-from animations.utils import get_all_colors, set_face_color
+from animations.utils import get_all_colors
 from utils import SharedState
 from read_sensor import TempratureSettings
+from shape import Shape
+import neopixel
+
 # Animation timing constants
 FRAME_TIME_MS = int(1000/20)  # 20 FPS
 COLOR_TRANSITION_TIME_MS = 2000  # Time to transition between base colors
@@ -18,7 +21,6 @@ MAX_TEMP = 255  # Maximum temperature value (full sensor range)
 TEMP_SENSITIVITY = 0.3  # How much of the range above threshold triggers full intensity
 BASE_COLOR_DIMMING = 0.6  # Much dimmer base state for contrast
 RIPPLE_PULSE_FREQ = 3.0  # Faster pulses
-MAX_PROPAGATION_DISTANCE = 2  # Maximum number of faces the effect can spread
 DEBUG_PRINT_INTERVAL_MS = 500  # Only print debug every 500ms to avoid spam
 
 class RippleState:
@@ -113,13 +115,8 @@ def apply_ripple_to_color(
     )
 
 async def animate(
-        np: 'neopixel.NeoPixel',
-        leds_per_face: int,
-        num_faces: int,
-        layers: tuple[tuple[int, ...], ...],
-        sensors_to_face: list[list[int]],
-        face_to_sensors: list[list[int]],
-        face_positions: list[list[float]],
+        np: neopixel.NeoPixel,
+        shape: Shape,
         stop_event: asyncio.Event,
         state: SharedState
     ) -> None:
@@ -140,7 +137,7 @@ async def animate(
     color_transition_start = time.ticks_ms()
     
     # Initialize ripple state
-    ripple = RippleState(num_faces)
+    ripple = RippleState(shape.num_faces)
     
     while not stop_event.is_set():
         frame_start = time.ticks_ms()
@@ -171,20 +168,20 @@ async def animate(
         )
         
         # Reset tracking arrays
-        ripple.active_sensors = [False] * num_faces
-        ripple.propagation_levels = [0] * num_faces
+        ripple.active_sensors = [False] * shape.num_faces
+        ripple.propagation_levels = [0] * shape.num_faces
         
         # Process sensor data and update ripple targets
         active_faces_info = []  # Collect info about active faces for debug printing
-        for face_idx in range(num_faces):
+        for face_idx in range(shape.num_faces):
             # Decay current ripple intensity
             ripple.intensities[face_idx] *= RIPPLE_DECAY_RATE
             
             # Check sensors for this face
-            if face_idx < len(face_to_sensors):
+            if face_idx < len(shape.face_to_sensors):
                 max_temp = 0
                 active_sensors = []
-                for sensor_idx in face_to_sensors[face_idx]:
+                for sensor_idx in shape.face_to_sensors[face_idx]:
                     if sensor_idx < len(sensor_data) and sensor_data[sensor_idx] is not None:
                         temp = sensor_data[sensor_idx][1]  # Get temperature value
                         if temp is not None and temp > max_temp:
@@ -194,111 +191,55 @@ async def animate(
                 # Update ripple target and active sensor status if temperature exceeds threshold
                 if max_temp > MIN_TEMP_THRESHOLD:
                     # Calculate normalized temp with higher sensitivity
-                    # Will reach 1.0 when temp is MIN_TEMP_THRESHOLD + (TEMP_SENSITIVITY * (MAX_TEMP - MIN_TEMP_THRESHOLD))
                     normalized_temp = min(1.0, (max_temp - MIN_TEMP_THRESHOLD) / (TEMP_SENSITIVITY * (MAX_TEMP - MIN_TEMP_THRESHOLD)))
                     ripple.target_intensities[face_idx] = normalized_temp * MAX_RIPPLE_INTENSITY
                     ripple.active_sensors[face_idx] = True
                     
-                    # Add to debug info if temperature changed significantly
-                    temp_diff = abs(max_temp - ripple.prev_sensor_temps[face_idx])
-                    if temp_diff > 2.0:  # Report if temperature changed by more than 2 units
-                        active_faces_info.append(f"Face {face_idx} active - Temp: {max_temp:.1f} (normalized: {normalized_temp:.2f})")
-                        for sensor_idx, temp in active_sensors:
-                            active_faces_info.append(f"  - Sensor {sensor_idx}: {temp:.1f}")
-                else:
-                    ripple.target_intensities[face_idx] = 0.0
-                    if ripple.prev_sensor_temps[face_idx] > MIN_TEMP_THRESHOLD:
-                        active_faces_info.append(f"Face {face_idx} deactivated (was {ripple.prev_sensor_temps[face_idx]:.1f})")
-                
-                # Store current temperature
-                ripple.prev_sensor_temps[face_idx] = max_temp
-        
-        # Debug printing with rate limiting
-        if False and time.ticks_diff(frame_start, ripple.last_debug_print) > DEBUG_PRINT_INTERVAL_MS:
-            print("\nSensor Status:")
-            active_count = 0
-            for face_idx in range(num_faces):
-                if ripple.active_sensors[face_idx]:
-                    active_count += 1
-                    print(f"Face {face_idx} - Temp: {ripple.prev_sensor_temps[face_idx]:.1f}")
-            
-            if active_count == 0:
-                print("No active sensors")
-            
-            if active_faces_info:
-                print("\nRecent Changes:")
-                for info in active_faces_info:
-                    print(info)
-            
-            ripple.last_debug_print = frame_start
-        
-        # Propagate ripples and update propagation levels
-        new_intensities = ripple.intensities.copy()
-        
-        # Reset propagation tracking
-        ripple.propagation_levels = [0] * num_faces
-        for i in range(num_faces):
-            ripple.propagation_sources[i].clear()
-        
-        # First mark all active sensor faces
-        for face_idx in range(num_faces):
-            if ripple.active_sensors[face_idx]:
-                ripple.propagation_sources[face_idx].add(face_idx)
-                ripple.propagation_levels[face_idx] = 0
-        
-        # Then propagate the effect outward, level by level
-        for distance in range(1, MAX_PROPAGATION_DISTANCE + 1):
-            # Find faces at the current distance
-            for face_idx in range(num_faces):
-                if ripple.propagation_levels[face_idx] == distance - 1:
-                    # Get adjacent faces
-                    adjacent_faces = get_adjacent_faces_in_layer(face_idx, layers)
+                    # Collect debug info
+                    active_faces_info.append((face_idx, max_temp, active_sensors))
+                    
+                    # Propagate to adjacent faces
+                    adjacent_faces = get_adjacent_faces_in_layer(face_idx, shape.layers)
                     for adj_face in adjacent_faces:
-                        # Only propagate if:
-                        # 1. The adjacent face isn't already closer to a source
-                        # 2. We haven't already propagated to this face from this source
-                        if (ripple.propagation_levels[adj_face] == 0 and 
-                            not ripple.active_sensors[adj_face] and
-                            not ripple.propagation_sources[face_idx].intersection(ripple.propagation_sources[adj_face])):
+                        if adj_face != face_idx:  # Don't propagate to self
+                            # Calculate propagation intensity based on distance
+                            propagation_intensity = ripple.target_intensities[face_idx] * RIPPLE_PROPAGATION_RATE
                             
-                            # Calculate decayed propagation value
-                            base_intensity = ripple.intensities[face_idx]
-                            distance_factor = 1.0 - (distance / (MAX_PROPAGATION_DISTANCE + 1))
-                            propagation_value = base_intensity * RIPPLE_PROPAGATION_RATE * distance_factor
-                            
-                            # Only propagate if it would increase the intensity
-                            if propagation_value > new_intensities[adj_face]:
-                                new_intensities[adj_face] = propagation_value
-                                ripple.propagation_levels[adj_face] = distance
-                                # Add all sources that led to this propagation
-                                ripple.propagation_sources[adj_face].update(ripple.propagation_sources[face_idx])
-        
-        # Update intensities
-        for face_idx in range(num_faces):
-            current_intensity = ripple.intensities[face_idx]
-            target_intensity = ripple.target_intensities[face_idx]
+                            # Update target intensity if propagation is stronger
+                            if propagation_intensity > ripple.target_intensities[adj_face]:
+                                ripple.target_intensities[adj_face] = propagation_intensity
+                                ripple.propagation_levels[adj_face] = ripple.propagation_levels[face_idx] + 1
+                                ripple.propagation_sources[adj_face].add(face_idx)
+                    
+                    # Debug print active faces and their temperatures periodically
+                    current_time = time.ticks_ms()
+                    if time.ticks_diff(current_time, ripple.last_debug_print) > DEBUG_PRINT_INTERVAL_MS:
+                        ripple.last_debug_print = current_time
+                        if active_faces_info:
+                            print("Active faces:", ", ".join(
+                                f"Face {face_idx} (temp: {temp:.1f}, sensors: {sensors})"
+                                for face_idx, temp, sensors in active_faces_info
+                            ))
             
-            # Move current intensity toward target
-            if current_intensity < target_intensity:
-                new_intensities[face_idx] = min(
-                    target_intensity,
-                    current_intensity + 0.25  # Faster intensity increase
-                )
-        
-        ripple.intensities = new_intensities
-        
-        # Apply colors and ripple effects to LEDs
-        for face_idx in range(num_faces):
+            # Smooth transition to target intensity
+            intensity_diff = ripple.target_intensities[face_idx] - ripple.intensities[face_idx]
+            if abs(intensity_diff) > 0.01:  # Only adjust if difference is significant
+                ripple.intensities[face_idx] += intensity_diff * 0.1  # Smooth transition factor
+            
+            # Apply ripple effect to color
             final_color = apply_ripple_to_color(
-                base_color, 
+                base_color,
                 ripple.intensities[face_idx],
                 ripple.phase,
                 ripple.propagation_phase,
                 ripple.active_sensors[face_idx],
                 ripple.propagation_levels[face_idx]
             )
-            set_face_color(np, leds_per_face, face_idx, final_color)
+            
+            # Set the face color
+            shape.set_face_color(np, face_idx, final_color)
         
+        # Write all changes to strip
         np.write()
         
         # Frame timing

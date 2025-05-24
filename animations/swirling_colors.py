@@ -2,7 +2,8 @@ import asyncio
 import time
 import neopixel
 from utils import SharedState
-from animations.utils import get_all_colors, set_face_color
+from animations.utils import get_all_colors
+from shape import Shape
 
 FRAME_TIME_MS = int(1000/20)
 BASE_CHANGE_COLOR_TIME_MS = int(1000/3)
@@ -23,18 +24,12 @@ def interpolate_color(color1: tuple[int, int, int], color2: tuple[int, int, int]
 
 async def animate(
         np: neopixel.NeoPixel,
-        leds_per_face: int,
-        num_faces: int,
-        layers: tuple[tuple[int, ...], ...],
-        sensors_to_face: list[list[int]],
-        face_to_sensors: list[list[int]],
-        face_positions: list[list[float]],
+        shape: Shape,
         stop_event: asyncio.Event,
         state: SharedState
     ) -> None:
     
     colors = get_all_colors()
-    # print(colors) # Commented out or removed print
     num_colors = len(colors)
     
     source_color_index = 0
@@ -80,7 +75,7 @@ async def animate(
             transition_progress = 0.0 
 
         face_number = 0
-        for i, layer in enumerate(layers):
+        for i, layer in enumerate(shape.layers):
             for j, face_index in enumerate(layer):
                 # Determine the "effective" source and target colors for this specific face's swirl
                 # This maintains the swirling pattern while fading
@@ -88,7 +83,7 @@ async def animate(
                 current_face_target_color = colors[(target_color_index + face_number) % num_colors]
                 
                 interpolated_color = interpolate_color(current_face_source_color, current_face_target_color, transition_progress)
-                set_face_color(np, leds_per_face, face_index, interpolated_color)
+                shape.set_face_color(np, face_index, interpolated_color)
                 face_number += 1
         np.write()
         await asyncio.sleep_ms(FRAME_TIME_MS - time.ticks_diff(time.ticks_ms(), frame_start_time))

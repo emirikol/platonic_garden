@@ -1,22 +1,18 @@
 import asyncio
 import time
-from animations.utils import set_face_color
 from utils import SharedState
+from shape import Shape
+import neopixel
 
 async def animate(
         np: neopixel.NeoPixel,
-        leds_per_face: int,
-        num_faces: int,
-        layers: tuple[tuple[int, ...], ...],
-        sensors_to_face: list[list[int]],
-        face_to_sensors: list[list[int]],
-        face_positions: list[list[float]],
+        shape: Shape,
         stop_event: asyncio.Event,
         state: SharedState
     ) -> None:
     
     num_steps = 100
-    layer_ratio = num_steps / len(layers)
+    layer_ratio = num_steps / len(shape.layers)
     reverse_start_step = num_steps - 1
     minimum_intensity = 50
     frame_time_ms = 1000/30
@@ -34,34 +30,34 @@ async def animate(
             return True  # Signal to stop
         
         # First pass - set base colors
-        for j in range(len(layers)):
+        for j in range(len(shape.layers)):
             layer_location = j * layer_ratio
             distance = int(abs(step_index - layer_location))
             intensity = max(minimum_intensity, 255 - distance*30)
             layer_color = (intensity, 0, intensity)
-            for face in layers[j]:
-                set_face_color(np, leds_per_face, face, layer_color)
+            for face in shape.layers[j]:
+                shape.set_face_color(np, face, layer_color)
     
         # Second pass - apply temperature adjustments
-        for j in range(len(layers)):
+        for j in range(len(shape.layers)):
             layer_location = j * layer_ratio
             distance = int(abs(step_index - layer_location))
             intensity = max(minimum_intensity, 255 - distance*30)
             
-            if len(layers[j]) != 1:
-                for face_index in range(len(layers[j])):
+            if len(shape.layers[j]) != 1:
+                for face_index in range(len(shape.layers[j])):
                     if distances is not None and face_index < len(distances) and distances[face_index][0] is not None: 
                         # Get temperature from the tuple (distance, temperature)
-                        face = layers[j][face_index]
-                        sensor_temp = max([distances[i][1] for i in face_to_sensors[face]] + [0])
+                        face = shape.layers[j][face_index]
+                        sensor_temp = max([distances[i][1] for i in shape.face_to_sensors[face]] + [0])
                         layer_color = (intensity, 0, int(intensity*((255-sensor_temp)/255)))
-                        set_face_color(np, leds_per_face, layers[j][face_index], layer_color)
+                        shape.set_face_color(np, shape.layers[j][face_index], layer_color)
             else:
                 # Compute the average temperature from distances
                 if distances is not None and len(distances) > 0:
                     avg_temp = sum(reading[1] for reading in distances) / len(distances)
                     layer_color = (intensity, 0, int(intensity*((255-avg_temp)/255)))
-                    set_face_color(np, leds_per_face, layers[j][0], layer_color)
+                    shape.set_face_color(np, shape.layers[j][0], layer_color)
 
         np.write()
         

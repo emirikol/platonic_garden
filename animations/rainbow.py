@@ -1,8 +1,9 @@
 import asyncio
 import time
-from animations.utils import set_face_color
 import math
 from utils import SharedState
+from shape import Shape
+import neopixel
 
 RAINBOW_COLORS = [
     (255, 0, 0), # Red
@@ -18,12 +19,7 @@ FRAME_TIME = 50
 
 async def animate(
         np: neopixel.NeoPixel,
-        leds_per_face: int,
-        num_faces: int,
-        layers: tuple[tuple[int, ...], ...],
-        sensors_to_face: list[list[int]],
-        face_to_sensors: list[list[int]],
-        face_positions: list[list[float]],
+        shape: Shape,
         stop_event: asyncio.Event,
         state: SharedState
 ) -> None:
@@ -37,7 +33,7 @@ async def animate(
     last_color_sweep_time_ms = time.ticks_ms() 
     
     # Phase for brightness oscillation for each face (radians)
-    face_phases = [0.0] * num_faces 
+    face_phases = [0.0] * shape.num_faces 
     
     # Variables for the rainbow color sweep effect (which part of rainbow applies where)
     current_layer_for_sweep = 0
@@ -60,17 +56,15 @@ async def animate(
         temperatures_per_sensor = []
         if sensor_readings_tuples:
             temperatures_per_sensor = [temp for _, temp in sensor_readings_tuples]
-        # If sensor_readings_tuples is None or empty, temperatures_per_sensor remains empty.
-        # This will result in a default temperature of 0 for faces if sensor data is missing.
 
         # Logic for sweeping base rainbow colors across layers/faces
         if time.ticks_diff(frame_start_ms, last_color_sweep_time_ms) > COLOR_CHANGE_INTERVAL:
-            if (current_layer_for_sweep == len(layers) - 1 and
-                current_face_in_layer_for_sweep == len(layers[current_layer_for_sweep]) - 1):
+            if (current_layer_for_sweep == len(shape.layers) - 1 and
+                current_face_in_layer_for_sweep == len(shape.layers[current_layer_for_sweep]) - 1):
                 current_layer_for_sweep = 0
                 current_face_in_layer_for_sweep = 0
                 current_color_index = (current_color_index + 1) % len(RAINBOW_COLORS)
-            elif current_face_in_layer_for_sweep == len(layers[current_layer_for_sweep]) - 1:
+            elif current_face_in_layer_for_sweep == len(shape.layers[current_layer_for_sweep]) - 1:
                 current_layer_for_sweep += 1
                 current_face_in_layer_for_sweep = 0
             else:
@@ -79,7 +73,7 @@ async def animate(
 
         # Determine base color for each face based on the sweep progression
         base_colors_for_each_face = {} # Map: actual_face_idx -> color_tuple
-        for layer_idx, layer_content in enumerate(layers):
+        for layer_idx, layer_content in enumerate(shape.layers):
             for face_idx_in_layer, actual_face_idx in enumerate(layer_content):
                 if (layer_idx < current_layer_for_sweep or
                     (layer_idx == current_layer_for_sweep and face_idx_in_layer < current_face_in_layer_for_sweep)):
@@ -88,19 +82,19 @@ async def animate(
                     base_colors_for_each_face[actual_face_idx] = RAINBOW_COLORS[current_color_index % len(RAINBOW_COLORS)]
         
         # Apply colors and brightness pulse to each face defined in layers
-        for layer_idx, layer_content in enumerate(layers):
+        for layer_idx, layer_content in enumerate(shape.layers):
             for face_idx_in_layer, actual_face_idx in enumerate(layer_content):
-                if actual_face_idx >= num_faces: # Safety check against out-of-bounds face index
+                if actual_face_idx >= shape.num_faces: # Safety check against out-of-bounds face index
                     continue
 
                 base_color = base_colors_for_each_face.get(actual_face_idx, RAINBOW_COLORS[0])
 
                 # Get temperature for this specific face by checking all its mapped sensors for the highest temp
                 face_temp = 0 # Default to 0 if no sensor mapped or no data
-                if actual_face_idx < len(face_to_sensors) and face_to_sensors[actual_face_idx]:
-                    max_temp_for_this_face = 0 # Initialize with a value that will be overridden by any valid temp
+                if actual_face_idx < len(shape.face_to_sensors) and shape.face_to_sensors[actual_face_idx]:
+                    max_temp_for_this_face = 0
                     # Iterate over all sensors mapped to this face
-                    for sensor_idx in face_to_sensors[actual_face_idx]:
+                    for sensor_idx in shape.face_to_sensors[actual_face_idx]:
                         # Check if the sensor_idx is valid and its temperature data exists
                         if sensor_idx < len(temperatures_per_sensor) and temperatures_per_sensor[sensor_idx] is not None:
                             current_sensor_temp = temperatures_per_sensor[sensor_idx]
@@ -113,28 +107,24 @@ async def animate(
                 frequency_hz = 0.0
 
                 # Determine if face should pulse and calculate its frequency
-                if face_temp >= TEMP_MIN_PULSE: # Pulse if temp is TEMP_MIN_PULSE (30) or more
+                if face_temp >= TEMP_MIN_PULSE:
                     pulse_active = True
                     # Clamp temperature for frequency calculation to the sensor's max value
                     clamped_temp = min(face_temp, TEMP_MAX_SENSOR_VAL) 
                     
                     # Linearly interpolate frequency between FREQ_HZ_MIN and FREQ_HZ_MAX
-                    # Avoid division by zero if TEMP_MAX_SENSOR_VAL is configured equal to TEMP_MIN_PULSE
                     if (TEMP_MAX_SENSOR_VAL - TEMP_MIN_PULSE) > 0:
-                        # Ratio of current temp within the pulsing range
                         ratio = (clamped_temp - TEMP_MIN_PULSE) / (TEMP_MAX_SENSOR_VAL - TEMP_MIN_PULSE)
                         frequency_hz = FREQ_HZ_MIN + (FREQ_HZ_MAX - FREQ_HZ_MIN) * ratio
-                    else: # If min and max temps for pulsing range are the same
-                        frequency_hz = FREQ_HZ_MIN # Or FREQ_HZ_MAX, behavior for this edge case
+                    else:
+                        frequency_hz = FREQ_HZ_MIN
                 
                 if pulse_active:
                     face_phases[actual_face_idx] += 2 * math.pi * frequency_hz * dt_seconds
                     face_phases[actual_face_idx] %= (2 * math.pi)
                     current_brightness_factor = 0.75 + 0.25 * math.sin(face_phases[actual_face_idx])
-                # else: current_brightness_factor remains BASE_BRIGHTNESS as initialized earlier
                 
                 # Apply brightness to color based on the new rule
-                # current_brightness_factor is guaranteed to be between 0.5 and 1.0 here.
                 value_to_add_to_zero_channels = (current_brightness_factor - BASE_BRIGHTNESS) * 50.0
                 
                 new_color_channels = []
@@ -150,7 +140,7 @@ async def animate(
                     new_color_channels.append(max(0, min(255, int(channel_val))))
                 bright_color = tuple(new_color_channels)
                 
-                set_face_color(np, leds_per_face, actual_face_idx, bright_color)
+                shape.set_face_color(np, actual_face_idx, bright_color)
         np.write() # Write all LED changes to the strip
         
         # Frame delay to achieve target FRAME_TIME
