@@ -24,17 +24,16 @@ async def animate(
         frame_start = time.time_ns()
         
         distances = (await state.get()).get("distances")
-        if stop_event.is_set():
-            return True  # Signal to stop
         
         # First pass - set base colors
         for j in range(len(shape.layers)):
             layer_location = j * layer_ratio
             distance = int(abs(step_index - layer_location))
             intensity = max(minimum_intensity, 255 - distance*30)
-            layer_color = (intensity, 0, intensity)
             for face in shape.layers[j]:
-                shape.set_face_color(face, layer_color)
+                sensor_temp = max([distances[i][1] for i in shape.face_to_sensors[face]] + [0])
+                face_color = (intensity, 0, int(intensity*((255-sensor_temp)/255)))
+                shape.set_face_color(face, face_color)
         
         shape.write()
         
@@ -45,16 +44,13 @@ async def animate(
         await asyncio.sleep_ms(sleep_time_ms)
         
         total_frames += 1
-        return False  # Continue animation
     
     step = 0
     direction = 1
     
     while not stop_event.is_set():
-        should_stop = await process_animation_step(step)
-        if should_stop:
-            break
-            
+        await process_animation_step(step)
+
         step += direction
         if step >= num_steps:
             step = reverse_start_step

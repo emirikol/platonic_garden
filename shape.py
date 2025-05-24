@@ -60,7 +60,7 @@ class Shape:
             #  This should work for any shape but the esp32 is slow so we only do it for octahedron
             colors = []
             for face_index in self.layers[0]:
-                colors.append(self[self.leds_per_face * face_index][0])
+                colors.append(self[self.leds_per_face * face_index])
             color = [0, 0, 0]
             for i in range(len(colors)):
                 color[0] += colors[i][0]
