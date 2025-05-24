@@ -1,10 +1,8 @@
 import asyncio
 from utils import SharedState
 from shape import Shape
-import neopixel
 
 async def animate(
-        np: neopixel.NeoPixel,
         shape: Shape,
         stop_event: asyncio.Event,
         state: SharedState
@@ -13,7 +11,6 @@ async def animate(
     Template for animation functions using the Shape class.
     
     Args:
-        np: The NeoPixel object to control the LEDs
         shape: Shape object containing all shape-related data:
             - shape.name: Name of the shape (filename without .json extension)
             - shape.leds_per_face: Number of LEDs per face
@@ -22,7 +19,8 @@ async def animate(
             - shape.sensors_to_face: List mapping sensors to faces they affect
             - shape.face_to_sensors: List mapping faces to their associated sensors
             - shape.face_positions: List of face positions in 3D space
-            - shape.set_face_color(np, face_id, color): Method to set all LEDs in a face to a specific color
+            - shape.set_face_color(face_id, color): Method to set all LEDs in a face to a specific color
+            - shape.write(): Method to update the physical LEDs
         stop_event: Event to signal when the animation should stop
         state: Shared state object for communication between components
     """
@@ -39,7 +37,7 @@ async def animate(
                 face_position = shape.face_positions[face_id]
                 
                 # Set face color example
-                shape.set_face_color(np, face_id, (255, 0, 0))
+                shape.set_face_color(face_id, (255, 0, 0))
                 
-        np.write()
+        shape.write()
         await asyncio.sleep_ms(50)  # Example frame delay

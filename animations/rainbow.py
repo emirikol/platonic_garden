@@ -3,7 +3,6 @@ import time
 import math
 from utils import SharedState
 from shape import Shape
-import neopixel
 
 RAINBOW_COLORS = [
     (255, 0, 0), # Red
@@ -18,7 +17,6 @@ COLOR_CHANGE_INTERVAL = 300
 FRAME_TIME = 50
 
 async def animate(
-        np: neopixel.NeoPixel,
         shape: Shape,
         stop_event: asyncio.Event,
         state: SharedState
@@ -26,8 +24,8 @@ async def animate(
     # Initial fill with 0.5 brightness of the first rainbow color
     initial_base_color = RAINBOW_COLORS[0]
     initial_bright_color = tuple(int(c * 0.5) for c in initial_base_color)
-    np.fill(initial_bright_color)
-    np.write()
+    shape.fill(initial_bright_color)
+    shape.write()
     
     current_color_index = 0
     last_color_sweep_time_ms = time.ticks_ms() 
@@ -44,7 +42,7 @@ async def animate(
     FREQ_HZ_MIN = 1/3        # Frequency (Hz) at TEMP_MIN_PULSE
     FREQ_HZ_MAX = 2.0        # Frequency (Hz) at TEMP_MAX_SENSOR_VAL
     TEMP_MAX_SENSOR_VAL = 255 # Max value for temperature from sensor (0-255 range)
-    BASE_BRIGHTNESS = 0.5 # Default brightness for faces with no pulse
+    BASE_BRIGHTNESS = 0.5
 
     while not stop_event.is_set():
         frame_start_ms = time.ticks_ms()
@@ -140,8 +138,8 @@ async def animate(
                     new_color_channels.append(max(0, min(255, int(channel_val))))
                 bright_color = tuple(new_color_channels)
                 
-                shape.set_face_color(np, actual_face_idx, bright_color)
-        np.write() # Write all LED changes to the strip
+                shape.set_face_color(actual_face_idx, bright_color)
+        shape.write() # Write all LED changes to the strip
         
         # Frame delay to achieve target FRAME_TIME
         elapsed_frame_ms = time.ticks_diff(time.ticks_ms(), frame_start_ms)
