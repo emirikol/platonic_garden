@@ -71,7 +71,7 @@ async def run_animations(
         try:
             new_animation = (await state.get()).get('animation')
             if new_animation is not None:
-                if new_animation != current_animation:
+                if new_animation != current_animation and new_animation in animations:
                     current_animation = new_animation
                     if task is not None:
                         stop_event.set()

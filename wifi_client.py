@@ -153,8 +153,12 @@ async def fetch_animation_data() -> str | None:
 
 async def is_wifi_connected():
     """Asynchronously checks the current Wi-Fi connection status."""
-    wlan = network.WLAN(network.STA_IF)
-    return wlan.isconnected()
+    try:
+        wlan = network.WLAN(network.STA_IF)
+        return wlan.isconnected()
+    except Exception as e:
+        sys.print_exception(e)
+        return False
 
 async def main():
     animation = await fetch_animation_data()
