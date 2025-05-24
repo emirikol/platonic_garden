@@ -6,4 +6,5 @@ ANIMATIONS = [
     'sensory_orb',
     'rippling_waves',
     'moving_plane',
+    'spinning_slice'
 ]
